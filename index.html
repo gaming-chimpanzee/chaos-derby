@@ -12,15 +12,48 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <style>
-  html,body{margin:0;padding:0;background:#111;overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;touch-action:none;}
-  #c{display:block;width:100vw;height:100vh;image-rendering:pixelated;}
-  .hint{position:fixed;left:10px;bottom:10px;color:#bbb;font-size:12px;opacity:.8;user-select:none;pointer-events:none;}
+  :root{
+    --safeT: env(safe-area-inset-top, 0px);
+    --safeR: env(safe-area-inset-right, 0px);
+    --safeB: env(safe-area-inset-bottom, 0px);
+    --safeL: env(safe-area-inset-left, 0px);
+  }
+
+  html,body{
+    margin:0;
+    padding:0;
+    background:#111;
+    overflow:hidden;
+    font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;
+    touch-action:none;
+    width:100%;
+    height:100%;
+  }
+
+  #c{
+    display:block;
+    width:100vw;
+    height:100vh;
+    height:100svh;
+    height:100dvh;
+    image-rendering:pixelated;
+  }
+
+  .hint{
+    position:fixed;left:10px;bottom:10px;
+    color:#bbb;font-size:12px;opacity:.8;
+    user-select:none;pointer-events:none;
+  }
+
   /* Touch UI */
   #touchUI{position:fixed;inset:0;pointer-events:none;}
   .pad,.btn{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;}
+
   .pad{
-    left:14px; bottom:14px;
-    width:180px; height:180px;
+    left: calc(12px + var(--safeL));
+    bottom: calc(12px + var(--safeB));
+    width: min(34vw, 160px);
+    height:min(34vw, 160px);
     border-radius:999px;
     background:rgba(255,255,255,0.06);
     border:2px solid rgba(255,255,255,0.18);
@@ -28,13 +61,19 @@
   }
   .pad .knob{
     position:absolute; left:50%; top:50%;
-    width:64px; height:64px; margin-left:-32px; margin-top:-32px;
+    width: 40%;
+    height:40%;
+    margin-left:-20%;
+    margin-top:-20%;
     border-radius:999px;
     background:rgba(255,255,255,0.10);
     border:2px solid rgba(255,255,255,0.22);
   }
+
   .btn{
-    width:120px; height:72px;
+    right: calc(12px + var(--safeR));
+    width: min(26vw, 120px);
+    height: min(14vw, 64px);
     border-radius:16px;
     background:rgba(255,255,255,0.10);
     border:2px solid rgba(255,255,255,0.20);
@@ -43,21 +82,69 @@
     backdrop-filter: blur(2px);
   }
   .btn:active{transform:scale(0.98); background:rgba(255,255,255,0.14);}
-  #btnWhip{right:14px; bottom:14px;}
-  #btnJump{right:14px; bottom:98px;}
-  #btnRetry{right:14px; bottom:182px; opacity:0.85;}
+  #btnWhip{bottom: calc(12px + var(--safeB));}
+  #btnJump{bottom: calc(12px + var(--safeB) + min(14vw,64px) + 10px);}
+  #btnRetry{bottom: calc(12px + var(--safeB) + (min(14vw,64px) + 10px)*2); opacity:0.85;}
+
   .touchLabel{
-    position:absolute; left:14px; bottom:204px;
+    position:absolute;
+    left: calc(12px + var(--safeL));
+    top:  calc(10px + var(--safeT));
     color:rgba(255,255,255,0.6);
-    font-size:12px; pointer-events:none;
+    font-size:12px;
+    pointer-events:none;
   }
+
+  /* PCではタッチUI非表示 */
   @media (pointer:fine){
-    #touchUI{display:none;} /* PCは非表示 */
+    #touchUI{display:none;}
+  }
+
+  /* スマホはキーヒント非表示 */
+  @media (pointer:coarse){
+    .hint{ display:none !important; }
+  }
+
+  /* Portrait lock overlay */
+  #rotateOverlay{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,0.72);
+    z-index:9999;
+    color:#fff;
+    text-align:center;
+    padding:20px;
+  }
+  #rotateOverlay .box{
+    max-width:520px;
+    background:rgba(20,20,20,0.75);
+    border:1px solid rgba(255,255,255,0.18);
+    border-radius:16px;
+    padding:18px 16px;
+  }
+  #rotateOverlay .title{
+    font-size:22px;
+    font-weight:800;
+    margin-bottom:10px;
+  }
+  #rotateOverlay .sub{
+    font-size:14px;
+    color:rgba(255,255,255,0.8);
+    line-height:1.6;
+  }
+  #rotateOverlay .icon{
+    font-size:42px;
+    margin:10px 0 6px;
+    opacity:0.95;
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+
 <div class="hint">ENTER: Start / ↑↓: Move / SPACE: Whip / Z: Jump / R: Retry | F2 Debug F3 Hitbox F4 SeedLock F5 Slow F6 Screenshot F7 ObLabels F8 AIDebug</div>
 
 <!-- Touch UI -->
@@ -71,8 +158,21 @@
   <div class="btn" id="btnWhip">WHIP</div>
 </div>
 
+<!-- Portrait overlay -->
+<div id="rotateOverlay">
+  <div class="box">
+    <div class="title">横画面でプレイしてください</div>
+    <div class="icon">📱↻</div>
+    <div class="sub">
+      このゲームは横画面（ランドスケープ）専用です。<br>
+      端末を回転してください。
+    </div>
+  </div>
+</div>
+
 <script src="balance.js"></script>
 <script src="assets.js"></script>
+
 <script>
 (() => {
 'use strict';
@@ -114,13 +214,41 @@ function approach(v, target, dv){
 /* ---------------- Canvas ---------------- */
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+
 function resize(){
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
-  canvas.width = Math.floor(innerWidth*dpr);
-  canvas.height= Math.floor(innerHeight*dpr);
+  const r = canvas.getBoundingClientRect();
+  canvas.width  = Math.floor(r.width  * dpr);
+  canvas.height = Math.floor(r.height * dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);
 }
-addEventListener('resize', resize); resize();
+addEventListener('resize', resize);
+resize();
+
+/* ---------------- Orientation lock (best-effort) ---------------- */
+const rotateOverlay = document.getElementById('rotateOverlay');
+function isPortrait(){
+  return innerHeight > innerWidth;
+}
+function updateRotateOverlay(){
+  const portrait = isPortrait();
+  rotateOverlay.style.display = portrait ? 'flex' : 'none';
+  // portrait中は誤操作防止のためタッチUIも透過（表示はされるがoverlayが覆う）
+}
+addEventListener('resize', updateRotateOverlay);
+addEventListener('orientationchange', updateRotateOverlay);
+updateRotateOverlay();
+
+// Screen Orientation APIは「ユーザー操作が必要」なので、ゲーム開始時にロックを試す
+async function tryLockLandscape(){
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      await screen.orientation.lock('landscape');
+    }
+  }catch(_){
+    // 失敗は仕様上普通に起きるので無視（overlayで誘導）
+  }
+}
 
 /* ---------------- Input (Keyboard + Touch 합成) ---------------- */
 const kb = {
@@ -136,32 +264,28 @@ addEventListener('keydown', (e)=>{
 addEventListener('keyup', (e)=>{ kb.down[e.key]=false; });
 
 const touchState = {
-  moveY: 0,           // -1..+1
-  press: Object.create(null), // ' ' 'z' 'r' 'Enter'
+  moveY: 0,
+  press: Object.create(null),
   clearPress(){ for(const k in this.press) this.press[k]=false; }
 };
 
-// unified input used by game
 const input = {
   down: Object.create(null),
   press: Object.create(null),
   clearPress(){ for(const k in this.press) this.press[k]=false; },
   rebuild(){
-    // down
     this.down['ArrowUp']   = !!kb.down['ArrowUp']   || touchState.moveY < -0.25;
     this.down['ArrowDown'] = !!kb.down['ArrowDown'] || touchState.moveY >  0.25;
     this.down['w'] = !!kb.down['w'] || !!kb.down['W'];
     this.down['s'] = !!kb.down['s'] || !!kb.down['S'];
 
-    // press edge
-    this.press[' ']    = !!kb.press[' ']    || !!touchState.press[' '];
-    this.press['z']    = !!kb.press['z']    || !!kb.press['Z'] || !!touchState.press['z'];
-    this.press['Z']    = this.press['z']; // alias
-    this.press['r']    = !!kb.press['r']    || !!kb.press['R'] || !!touchState.press['r'];
-    this.press['R']    = this.press['r'];
-    this.press['Enter']= !!kb.press['Enter']|| !!touchState.press['Enter'];
+    this.press[' ']     = !!kb.press[' ']      || !!touchState.press[' '];
+    this.press['z']     = !!kb.press['z']      || !!kb.press['Z'] || !!touchState.press['z'];
+    this.press['Z']     = this.press['z'];
+    this.press['r']     = !!kb.press['r']      || !!kb.press['R'] || !!touchState.press['r'];
+    this.press['R']     = this.press['r'];
+    this.press['Enter'] = !!kb.press['Enter']  || !!touchState.press['Enter'];
 
-    // clear sources for next frame
     kb.clearPress();
     touchState.clearPress();
   }
@@ -169,7 +293,7 @@ const input = {
 
 /* ---------------- Debug toggles ---------------- */
 const debug = {
-  build: 'SIDE_MOCK_PWA_TOUCH_v1',
+  build: 'SIDE_MOCK_PWA_TOUCH_ORIENT_v1',
   debug: true,
   hitbox: false,
   seedLock: true,
@@ -178,6 +302,12 @@ const debug = {
   obLabels: false,
   aiDebug: false,
 };
+
+// スマホではデバッグUIをデフォルトOFF（画面圧迫防止）
+if (matchMedia && matchMedia('(pointer:coarse)').matches) {
+  debug.debug = false;
+}
+
 addEventListener('keydown',(e)=>{
   if(e.repeat) return;
   if(e.key==='F2'){ debug.debug=!debug.debug; e.preventDefault(); }
@@ -209,8 +339,7 @@ addEventListener('keydown',(e)=>{
   addEventListener('resize', updateCenter);
 
   function setKnob(nx, ny){
-    // nx,ny in [-1,1]
-    const max = 52;
+    const max = Math.min(52, pad.getBoundingClientRect().width*0.32);
     knob.style.transform = `translate(${nx*max}px, ${ny*max}px)`;
   }
   setKnob(0,0);
@@ -226,7 +355,7 @@ addEventListener('keydown',(e)=>{
     const dx = e.clientX - padCenter.x;
     const dy = e.clientY - padCenter.y;
     const r = Math.hypot(dx,dy);
-    const maxR = 70;
+    const maxR = Math.min(70, pad.getBoundingClientRect().width*0.44);
     const k = r>1e-6 ? Math.min(1, r/maxR) : 0;
     const nx = (r>1e-6)? (dx/r)*k : 0;
     const ny = (r>1e-6)? (dy/r)*k : 0;
@@ -251,7 +380,6 @@ addEventListener('keydown',(e)=>{
 
   // タップでスタート（TITLE中）
   canvas.addEventListener('pointerdown',(e)=>{
-    // UI上のタップは除外（pointer-eventsで制御しているが念のため）
     if(e.target && e.target.closest && e.target.closest('#touchUI')) return;
     pressKey('Enter');
   }, {passive:false});
@@ -265,7 +393,6 @@ class Camera {
   }
   addShake(a){ this.shakeAmp = Math.min(BAL.shakeMax, this.shakeAmp + a); }
   update(dt, player){
-    // NOTE: camExtraAheadX is negative -> player appears more right
     const targetX = player.x + BAL.lookAheadX + (BAL.camExtraAheadX||0);
     this.x = lerp(this.x, targetX, BAL.camFollowLerp);
     this.y = 0;
@@ -290,7 +417,7 @@ class Camera {
 }
 
 class Obstacle{
-  constructor(id,type,x,y,r){ this.id=id; this.type=type; this.x=x; this.y=y; this.r=r; this.patternId=0; }
+  constructor(id,type,x,y,r){ this.id=id; this.type=type; this.x=x; this.y=y; this.r=r; }
 }
 
 class Horse{
@@ -298,30 +425,21 @@ class Horse{
     this.id=id; this.isPlayer=isPlayer; this.color=color;
     this.x=0; this.y=0; this.vx=0; this.vy=0;
     this.z=0; this.vz=0;
-    this.power=1;
-    this.boost=0;
-    this.startBoost=0;
+    this.boost=0; this.startBoost=0;
     this.stamina=BAL.staminaMax;
-    this.whipCD=0;
-    this.regenDelay=0;
-    this.startMoveLock=0;
-    this.startWhipLock=0;
-    this.penaltyStop=0;
-    this.hitSlowTimer=0;
-    this.hitSpeedTimer=0;
-    this.finished=false;
-    this.tGoal=0;
-    this.finishRank=0;
-    this.rank=8;
-    this.prevRank=8;
+    this.whipCD=0; this.regenDelay=0;
+    this.startMoveLock=0; this.startWhipLock=0; this.penaltyStop=0;
+    this.hitSlowTimer=0; this.hitSpeedTimer=0;
+    this.finished=false; this.tGoal=0; this.finishRank=0;
+    this.rank=8; this.prevRank=8;
     this.dropCooldown=0;
     this.ghostObs = new Map();
     this.hitLabel=''; this.hitLabelT=0;
     this._startJudged=false;
     this.ai = isPlayer? null : new AIBrain(this);
   }
-  get isGrounded(){ return (this.z<=0 && this.vz<=0); } // LOCK
-  get dash(){ return (this.boost >= BAL.boostCutoff); } // LOCK
+  get isGrounded(){ return (this.z<=0 && this.vz<=0); }
+  get dash(){ return (this.boost >= BAL.boostCutoff); }
   addHitLabel(txt){ this.hitLabel=txt; this.hitLabelT=BAL.hitLabelSec; }
 }
 
@@ -348,7 +466,7 @@ class AIBrain{
         const mistaken = (game.rng() < BAL.aiMistakeProb);
         let goUp = preferUp;
         if(mistaken) goUp=!preferUp;
-        this.targetY = clamp(goUp?upY:dnY, -game.halfW+game.yMargin, game.halfW-game.yMargin);
+        game.setAiTarget(h, goUp?upY:dnY);
         this.cooldownT = BAL.aiLaneChangeCooldownSec;
         this.setDecision((goUp?'EVADE↑':'EVADE↓') + (mistaken?'?':''));
       }else{
@@ -363,7 +481,7 @@ class AIBrain{
       if(h.stamina < BAL.whipCost*2) p=BAL.aiWhipProbLowStam;
       if(game.nearObstacleAhead(h,10)) p=Math.min(p,BAL.aiWhipProbNearObs);
       if(game.rng() < p){
-        game.tryWhip(h,true,true);
+        game.tryWhip(h,true);
         this.setDecision('WHIP');
       }
     }
@@ -372,7 +490,7 @@ class AIBrain{
 
 class Game{
   constructor(){
-    this.seed = BAL.defaultSeed;
+    this.seed = BAL.defaultSeed|0;
     this.rng = makeRng(this.seed);
     this.courseDistance = BAL.courseDistance;
     this.courseWidth = BAL.courseWidth;
@@ -380,13 +498,10 @@ class Game{
     this.yMargin = this.courseWidth * BAL.yMarginRatio;
 
     this.camera = new Camera();
-    this.time=0;
-    this.raceTime=0;
-
+    this.time=0; this.raceTime=0;
     this.scene='TITLE';
 
     this.countdownT = BAL.countdownSec;
-    this.goMomentT=-1;
     this.goWindowLeft=0;
     this.startFailed=false;
     this.startLocked=true;
@@ -404,12 +519,6 @@ class Game{
     this.initRun();
   }
 
-  resetWithSeed(seed){
-    this.seed = seed|0;
-    this.rng = makeRng(this.seed);
-    this.initRun();
-  }
-
   initRun(){
     this.obstacles.length=0;
     this.horses.length=0;
@@ -420,13 +529,12 @@ class Game{
     this.halfW = this.courseWidth*0.5;
     this.yMargin = this.courseWidth * BAL.yMarginRatio;
 
-    this.time=0;
-    this.raceTime=0;
+    this.time=0; this.raceTime=0;
     this.countdownT=BAL.countdownSec;
-    this.goMomentT=-1;
     this.goWindowLeft=0;
     this.startFailed=false;
     this.startLocked=true;
+
     this.resultT=0;
     this.bigText=''; this.bigTextT=0;
     this._goalShown=false;
@@ -439,7 +547,7 @@ class Game{
       if(isPlayer) this.player=h;
     }
 
-    // spawn Y positions (spread)
+    // spawn Y positions
     const ys=[];
     for(let i=0;i<8;i++) ys.push(lerp(-this.halfW+this.yMargin, this.halfW-this.yMargin, (i+0.5)/8));
     let closest=0,best=1e9;
@@ -461,9 +569,11 @@ class Game{
       h.hitSlowTimer=0; h.hitSpeedTimer=0;
       h.finished=false; h.tGoal=0; h.finishRank=0; h.rank=8; h.prevRank=8;
       h.dropCooldown=0; h.ghostObs.clear(); h.hitLabel=''; h.hitLabelT=0; h._startJudged=false;
+      if(h.ai){ h.ai.targetY=h.y; }
     }
 
-    this.generateObstaclesRow(); // ROW方式
+    this.generateObstaclesRow();
+
     this.camera.x = this.player.x + BAL.lookAheadX + (BAL.camExtraAheadX||0);
     this.camera.y = 0;
     this.camera.scale = BAL.camScaleBase;
@@ -472,12 +582,10 @@ class Game{
   }
 
   setBigText(txt,sec,color){ this.bigText=txt; this.bigTextT=sec; this.bigTextColor=color||'#fff'; }
+  setAiTarget(h, y){ if(h.ai) h.ai.targetY = clamp(y, -this.halfW+this.yMargin, this.halfW-this.yMargin); }
 
-  /* --------- Phase2.1: Row-based obstacles with path guarantee --------- */
   generateObstaclesRow(){
     const rByType={ mud:1.05, hurdle:1.00, barrel:1.00, boostPad:1.00, bigJumpPad:1.15 };
-
-    // セクションごとに使うタイプ候補（後半ほど悪い増やす）
     const poolBase = ['mud','hurdle','barrel','boostPad','bigJumpPad'];
 
     const secN=BAL.sectionsN;
@@ -493,19 +601,17 @@ class Game{
       return lerp(ymin, ymax, (i+0.5)/rowSlots);
     };
 
-    // rowの通路保証（複数xサンプル）
     const xSamples = (x, span)=>{
       const N = 5;
       const out=[];
       for(let k=0;k<N;k++){
-        const t = (k/(N-1))*2-1; // -1..+1
+        const t = (k/(N-1))*2-1;
         out.push(x + t*span);
       }
       return out;
     };
 
     const rowOk = (rowObs)=>{
-      // x方向に少し幅を持ってチェック（円が重なりで塞ぐのを検知）
       for(const xs of xSamples(rowObs.x, 2.4)){
         const intervals=[];
         for(const o of rowObs.list){
@@ -541,25 +647,21 @@ class Game{
     for(let si=0; si<secN; si++){
       const x0=si*secLen + 40;
       const x1=(si+1)*secLen - 12;
-      const rows = BAL.countBySection[si]; // row本数
+      const rows = BAL.countBySection[si];
       const mixCount = BAL.mixCountBySection[si] || 1;
 
-      // セクションタイプ候補（mixCountぶん選ぶ）
       const sectionTypes = [];
       for(let i=0;i<mixCount;i++){
-        // 後半ほどbarrel/hurdleが出やすいよう軽く偏らせる
         const t = si/(secN-1);
         const hardBias = clamp(0.25 + t*0.45, 0, 0.85);
         const pick = (this.rng() < hardBias) ? ['mud','hurdle','barrel'] : poolBase;
         sectionTypes.push(pick[Math.floor(this.rng()*pick.length)]);
       }
 
-      // ギャップ数：後半ほど減少
       const gapStart = BAL.rowGapStart ?? 3;
       const gapEnd   = BAL.rowGapEnd ?? 1;
       const gaps = Math.max(1, Math.round(lerp(gapStart, gapEnd, si/(secN-1))));
 
-      // FULL確率：後半ほど増加
       const fp0 = BAL.rowFullProbStart ?? 0.14;
       const fp1 = BAL.rowFullProbEnd ?? 0.34;
       const fullProb = lerp(fp0, fp1, si/(secN-1));
@@ -573,7 +675,7 @@ class Game{
           const isFull = (this.rng() < fullProb);
           const holes = isFull ? 0 : gaps;
 
-          // ★要望：rowは1種のみ
+          // rowは1種のみ
           const rowType = sectionTypes[Math.floor(this.rng()*sectionTypes.length)];
           const r = rByType[rowType] || 1.0;
 
@@ -585,8 +687,7 @@ class Game{
           const list=[];
           for(let s=0; s<rowSlots; s++){
             if(holeSet.has(s)) continue;
-            const y = slotY(s);
-            list.push(new Obstacle(idCounter++, rowType, x, y, r));
+            list.push(new Obstacle(idCounter++, rowType, x, slotY(s), r));
           }
 
           const rowObs = {x, list};
@@ -597,7 +698,6 @@ class Game{
         }
 
         if(!placed){
-          // フォールバック：必ず通れるよう穴多めで再配置
           const x = randRange(this.rng, x0, x1);
           const rowType = 'mud';
           const r = rByType[rowType];
@@ -632,6 +732,7 @@ class Game{
     }
     return false;
   }
+
   localCrowdScore(h,y){
     let score=0;
     for(const o of this.horses){
@@ -651,6 +752,7 @@ class Game{
     score += Math.abs(y)/Math.max(0.001,margin)*0.5;
     return score;
   }
+
   nearObstacleAhead(h,dist){
     for(const ob of this.obstacles){
       const dx=ob.x-h.x;
@@ -678,7 +780,6 @@ class Game{
     if(h.isPlayer) this.camera.addShake(BAL.shakeWhip);
   }
 
-  // RankUpdate: rankだけ更新（prevRankはフレーム頭でスナップショット）
   updateRanksOnly(){
     const arr=this.horses.slice().sort((a,b)=>b.x-a.x);
     for(let i=0;i<arr.length;i++) arr[i].rank=i+1;
@@ -724,16 +825,13 @@ class Game{
     if(debug.slow) dt*=0.25;
     this.time += dt;
 
-    // unify input each frame
     input.rebuild();
 
     if(this.scene==='TITLE'){
       if(input.press['Enter']){
+        // ユーザー操作の瞬間にorientation lockを試す
+        tryLockLandscape();
         this.scene='GAME';
-        if(!debug.seedLock){
-          this.resetWithSeed((Math.random()*1e9)|0);
-          this.scene='GAME';
-        }
         this.setBigText('3',0.6,'#fff');
       }
       input.clearPress();
@@ -742,12 +840,11 @@ class Game{
 
     if(this.scene==='RESULT'){
       this.resultT += dt;
-      if(input.press['r'] || input.press['R']) this.resetWithSeed(this.seed);
+      if(input.press['r'] || input.press['R']) this.initRun();
       input.clearPress();
       return;
     }
 
-    // --- GAME ---
     // Pair CD
     for(const [k,v] of Array.from(this.pairCD.entries())){
       const nv=v-dt;
@@ -755,7 +852,7 @@ class Game{
       else this.pairCD.set(k,nv);
     }
 
-    // StartState (321/GO/lock)
+    // StartState
     if(this.startLocked){
       this.countdownT -= dt;
       for(const h of this.horses){ h.vx=0; h.vy=0; h.boost=0; h.startBoost=0; }
@@ -769,7 +866,6 @@ class Game{
       else if(t>0) this.setBigText('1',0.1,'#fff');
       else{
         this.startLocked=false;
-        this.goMomentT=this.raceTime;
         this.goWindowLeft=BAL.goWindowSec;
         this.setBigText('GO!',BAL.goTextSec,'#aaffaa');
         for(const h of this.horses){
@@ -782,7 +878,6 @@ class Game{
       return;
     }
 
-    // ★更新順序：AI → Timers/Decay/Regen → Integrate → ...
     // AI
     for(const h of this.horses) if(h.ai) h.ai.update(dt,this);
 
@@ -803,7 +898,6 @@ class Game{
     }
     if(this.bigTextT>0) this.bigTextT=Math.max(0,this.bigTextT-dt);
 
-    // prevRank snapshot for catchup (fix)
     for(const h of this.horses) h.prevRank = h.rank;
 
     for(const h of this.horses){
@@ -832,7 +926,7 @@ class Game{
       if(h.startBoost < 0.01) h.startBoost=0;
     }
 
-    // Player InputEdge
+    // Player input
     const p=this.player;
     let inputY=0;
     const up = (input.down['ArrowUp'] || input.down['w'] || input.down['W']);
@@ -841,12 +935,11 @@ class Game{
     if(dn && p.startMoveLock<=0) inputY += 1;
 
     if(input.press[' ']) this.tryWhip(p,true);
-
     if(input.press['z']||input.press['Z']){
       if(!p.finished && p.isGrounded) p.vz = BAL.jumpV;
     }
 
-    // Integrate(vx/vy/z)
+    // Integrate
     const vMax = BAL.baseSpeed + BAL.boostMax + BAL.startBoostAdd + BAL.vMaxExtra;
     for(const h of this.horses){
       let catchMul=1.0;
@@ -878,14 +971,12 @@ class Game{
       vx = clamp(vx,0,vMax);
       h.vx=vx;
 
-      // jump axis
       h.vz = clamp(h.vz, -BAL.maxFallSpeed, BAL.maxRiseSpeed);
       h.vz -= BAL.g*dt;
       h.z += h.vz*dt;
       if(h.z<0){ h.z=0; if(h.vz<0) h.vz=0; }
       if(Math.abs(h.vz) < BAL.vyZeroSnap) h.vz=0;
 
-      // y control
       let aiInputY=0;
       if(h.ai){
         const dy=h.ai.targetY - h.y;
@@ -899,14 +990,12 @@ class Game{
       const targetVy=aiInputY*ySpeed;
       h.vy = approach(h.vy,targetVy,yAccel*dt);
 
-      // position update
       h.x += h.vx*dt;
       h.y += h.vy*dt;
-
       h.vy = clamp(h.vy, -BAL.vyMax, BAL.vyMax);
     }
 
-    // Collisions(Obstacle → Horse) + Horse×Horse, ApplyKnock(MaxOnly)
+    // Collisions + Knock (MaxOnly)
     const knockCandidates=[];
 
     for(const h of this.horses){
@@ -918,7 +1007,7 @@ class Game{
         if(dx*dx+dy*dy > rr*rr) continue;
 
         const isGood = (ob.type==='boostPad'||ob.type==='bigJumpPad');
-        if(isGood && !h.isGrounded) continue; // ground only
+        if(isGood && !h.isGrounded) continue;
 
         if(ob.type==='boostPad'){
           h.boost = Math.min(BAL.boostMax, h.boost + BAL.padBoost);
@@ -938,7 +1027,7 @@ class Game{
             if(d<1e-6){ ny=0; }
             else { nx/=d; ny/=d; }
             let knockSign;
-            if(Math.abs(ny) < BAL.barrelSideNyEps) knockSign=+1; // side -> up
+            if(Math.abs(ny) < BAL.barrelSideNyEps) knockSign=+1;
             else knockSign=signNz(ny,+1);
             knockCandidates.push({horse:h, knockY: knockSign*BAL.barrelKnockY, priority:2});
           }
@@ -995,10 +1084,9 @@ class Game{
       if(h.isPlayer) this.camera.addShake(BAL.shakeObstacle);
     }
 
-    // MinSeparation(PosOnly)
     this.minSeparationOnce();
 
-    // WallReturn(if touching)
+    // WallReturn
     for(const h of this.horses){
       const w=this.halfW, margin=BAL.horseR;
       let touching=false;
@@ -1030,10 +1118,8 @@ class Game{
       if(this.resultT >= BAL.resultDelaySec) this.scene='RESULT';
     }
 
-    // RankUpdate（仕様：Goal後）
     this.updateRanksOnly();
 
-    // Camera
     this.camera.update(dt,this.player);
 
     input.clearPress();
@@ -1048,11 +1134,9 @@ class Game{
     const top=cam.worldToScreen(0,-this.halfW).y;
     const bot=cam.worldToScreen(0, this.halfW).y;
 
-    // course
     ctx.fillStyle='#2a2a2a';
     ctx.fillRect(0,top,innerWidth,bot-top);
 
-    // guide lines
     ctx.globalAlpha=0.12;
     ctx.strokeStyle='#fff'; ctx.lineWidth=1;
     for(let i=1;i<7;i++){
@@ -1062,7 +1146,6 @@ class Game{
     }
     ctx.globalAlpha=1;
 
-    // start/goal lines
     const sx0=cam.worldToScreen(0,0).x;
     const sxG=cam.worldToScreen(this.courseDistance,0).x;
     ctx.lineWidth=3;
@@ -1071,13 +1154,11 @@ class Game{
     ctx.strokeStyle='#ffdd44';
     ctx.beginPath(); ctx.moveTo(sxG,top); ctx.lineTo(sxG,bot); ctx.stroke();
 
-    // bounds
     ctx.lineWidth=4;
     ctx.strokeStyle='#ff5555';
     ctx.beginPath(); ctx.moveTo(0,top); ctx.lineTo(innerWidth,top); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0,bot); ctx.lineTo(innerWidth,bot); ctx.stroke();
 
-    // obstacles
     for(const ob of this.obstacles){
       const p=cam.worldToScreen(ob.x,ob.y);
       const rpx=ob.r*p.s;
@@ -1089,18 +1170,8 @@ class Game{
       if(ob.type==='bigJumpPad') col='#44ffdd';
       ctx.fillStyle=col;
       ctx.beginPath(); ctx.arc(p.x,p.y,rpx,0,Math.PI*2); ctx.fill();
-
-      if(debug.obLabels || debug.screenshot){
-        ctx.fillStyle='#000'; ctx.font='12px system-ui';
-        ctx.fillText(ob.type, p.x - rpx*0.8, p.y - rpx - 4);
-      }
-      if(debug.hitbox){
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1;
-        ctx.beginPath(); ctx.arc(p.x,p.y,rpx,0,Math.PI*2); ctx.stroke();
-      }
     }
 
-    // horses
     for(const h of this.horses){
       const p=cam.worldToScreen(h.x,h.y);
       const bodyR=BAL.horseR*p.s;
@@ -1124,27 +1195,6 @@ class Game{
       ctx.ellipse(p.x,p.y+yOff,bodyR*1.1,bodyR*0.75,0,0,Math.PI*2);
       ctx.fill();
       ctx.globalAlpha=1;
-
-      if(h.dash){
-        ctx.strokeStyle='#ffffff';
-        ctx.globalAlpha=0.65;
-        ctx.lineWidth=2;
-        const lines=6;
-        for(let i=0;i<lines;i++){
-          const ang=(i/lines)*Math.PI*2;
-          const lx0=p.x+Math.cos(ang)*bodyR*0.6;
-          const ly0=p.y+yOff+Math.sin(ang)*bodyR*0.2;
-          const lx1=p.x+Math.cos(ang)*bodyR*1.2;
-          const ly1=p.y+yOff+Math.sin(ang)*bodyR*0.4;
-          ctx.beginPath(); ctx.moveTo(lx0,ly0); ctx.lineTo(lx1,ly1); ctx.stroke();
-        }
-        ctx.globalAlpha=1;
-      }
-
-      if(debug.hitbox){
-        ctx.strokeStyle='#fff'; ctx.lineWidth=1;
-        ctx.beginPath(); ctx.arc(p.x,p.y+yOff,bodyR,0,Math.PI*2); ctx.stroke();
-      }
     }
 
     this.drawUI();
@@ -1157,11 +1207,9 @@ class Game{
       ctx.fillText('CHAOS DERBY (SIDE)',60,110);
       ctx.font='20px system-ui';
       ctx.fillStyle='#ccc';
-      ctx.fillText('TAP/ENTER to Start (seed lock: '+(debug.seedLock?'ON':'OFF')+')',60,160);
+      ctx.fillText('TAP/ENTER to Start',60,160);
     }
-    if(this.scene==='RESULT'){
-      this.drawResult();
-    }
+
     if(this.bigTextT>0 && this.bigText){
       ctx.fillStyle=this.bigTextColor;
       ctx.font='72px system-ui';
@@ -1174,7 +1222,7 @@ class Game{
   drawUI(){
     const p=this.player;
 
-    /* ---------- Minimap : 画面上側中央 ---------- */
+    // Minimap (top-center)
     const mapW=Math.min(520, innerWidth-24);
     const mapH=52;
     const mx=innerWidth*0.5 - mapW*0.5;
@@ -1184,8 +1232,6 @@ class Game{
     ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(mx,my,mapW,mapH);
     ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(mx,my,mapW,mapH);
     ctx.fillStyle='#fff'; ctx.fillText('MAP', mx+6, my+14);
-    ctx.strokeStyle='rgba(255,255,255,0.25)';
-    ctx.beginPath(); ctx.moveTo(mx+BAL.mapMarginPx, my+mapH*0.6); ctx.lineTo(mx+mapW-BAL.mapMarginPx, my+mapH*0.6); ctx.stroke();
 
     const lanes=8;
     for(const h of this.horses){
@@ -1194,35 +1240,30 @@ class Game{
       const py=my+18+(h.id+0.5)/lanes*(mapH-22);
       ctx.fillStyle=h.isPlayer?'#fff':h.color;
       ctx.beginPath(); ctx.arc(px,py,h.isPlayer?4:3,0,Math.PI*2); ctx.fill();
-      if(h.isPlayer){ ctx.strokeStyle='#000'; ctx.stroke(); }
     }
 
-    /* ---------- Player Status UI : 画面下側中央 ---------- */
+    // Player status (bottom-center)
     const plateW=Math.min(560, innerWidth-24);
-    const plateH=120;
+    const plateH=110;
     const px0=innerWidth*0.5 - plateW*0.5;
     const py0=innerHeight-plateH-12;
 
     ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(px0,py0,plateW,plateH);
     ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(px0,py0,plateW,plateH);
 
-    ctx.fillStyle='#fff';
-    ctx.font=BAL.hudFontPx+'px system-ui';
     const left=px0+12, top=py0+18;
-
+    ctx.fillStyle='#fff';
     ctx.fillText(`SPD ${p.vx.toFixed(1)} m/s`, left, top);
     ctx.fillText(`RANK #${p.rank}/8`, left, top+18);
     const rem=Math.max(0,this.courseDistance-p.x);
     ctx.fillText(`REM ${rem.toFixed(0)} m`, left, top+36);
 
-    // stamina bar
     const barW=220,barH=10;
     const bx=left+170, by=top-10;
     ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(bx,by,barW,barH);
     ctx.fillStyle='#66ff88'; ctx.fillRect(bx,by,barW*(p.stamina/BAL.staminaMax),barH);
     ctx.fillStyle='#fff'; ctx.fillText(`STM ${p.stamina.toFixed(0)}`, bx, by+26);
 
-    // whip cd circle
     const cdRatio=1-clamp(p.whipCD/BAL.whipCDSec,0,1);
     const cx=px0+plateW-90, cy=py0+plateH*0.5+6, rr=18;
     ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=3;
@@ -1231,16 +1272,8 @@ class Game{
     ctx.beginPath(); ctx.arc(cx,cy,rr,-Math.PI/2,-Math.PI/2+Math.PI*2*cdRatio); ctx.stroke();
     ctx.fillStyle='#fff'; ctx.fillText('WHIP', cx-20, cy+36);
 
-    let state='READY';
-    if(p.startWhipLock>0) state='LOCK';
-    else if(p.whipCD>0) state='CD';
-    else if(p.stamina<BAL.whipCost) state='NO STAMINA';
-    ctx.fillText(`WHIP:${state}`, left, py0+plateH-12);
-    if(p.hitLabelT>0 && p.hitLabel) ctx.fillText(p.hitLabel, left+140, py0+plateH-12);
-
-    // Debug panel (右上)
     if(debug.debug){
-      const w=300,h=130;
+      const w=300,h=112;
       const dx=innerWidth-w-10, dy=mapH+26;
       ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(dx,dy,w,h);
       ctx.fillStyle='#fff';
@@ -1248,39 +1281,8 @@ class Game{
       ctx.fillText(`seed ${this.seed} (F4 lock:${debug.seedLock?'ON':'OFF'})`, dx+10, dy+38);
       ctx.fillText(`t ${this.raceTime.toFixed(2)}s`, dx+10, dy+56);
       ctx.fillText(`boost ${p.boost.toFixed(2)} start ${p.startBoost.toFixed(2)}`, dx+10, dy+74);
-      ctx.fillText(`slowT ${p.hitSlowTimer.toFixed(2)} hitT ${p.hitSpeedTimer.toFixed(2)}`, dx+10, dy+92);
-      ctx.fillText(`dash ${p.dash?'Y':'N'} z ${p.z.toFixed(2)}`, dx+10, dy+110);
+      ctx.fillText(`dash ${p.dash?'Y':'N'} z ${p.z.toFixed(2)}`, dx+10, dy+92);
     }
-  }
-
-  drawResult(){
-    const fin=this.horses.filter(h=>h.finished);
-    if(!fin.length) return;
-    fin.sort((a,b)=>a.tGoal-b.tGoal);
-    const winner=fin[0];
-    const p=this.player;
-    const diffM=(p.tGoal-winner.tGoal)*BAL.baseSpeed;
-
-    ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.fillRect(0,0,innerWidth,innerHeight);
-    ctx.fillStyle='#fff'; ctx.font='56px system-ui'; ctx.textAlign='center';
-    ctx.fillText('RESULT', innerWidth*0.5, 110);
-    ctx.font='28px system-ui'; ctx.fillText(`#${p.finishRank} / 8`, innerWidth*0.5, 170);
-    ctx.font='20px system-ui';
-    ctx.fillText(`TIME ${p.tGoal.toFixed(3)} s`, innerWidth*0.5, 210);
-    ctx.fillText(`DIFF +${Math.max(0,diffM).toFixed(1)} m (vs 1st)`, innerWidth*0.5, 240);
-    ctx.font='18px system-ui'; ctx.fillStyle='#ccc';
-    ctx.fillText('Press R / RETRY', innerWidth*0.5, 285);
-
-    ctx.textAlign='left'; ctx.fillStyle='#fff'; ctx.font='16px system-ui';
-    let y=330;
-    for(const h of fin){
-      const d=(h.tGoal-winner.tGoal)*BAL.baseSpeed;
-      const name=h.isPlayer?'PLAYER':'CPU'+h.id;
-      ctx.fillStyle=h.color;
-      ctx.fillText(`${String(h.finishRank).padStart(2,' ')}  ${name.padEnd(7,' ')}  ${h.tGoal.toFixed(3)}s  +${Math.max(0,d).toFixed(1)}m`, 70, y);
-      y+=20;
-    }
-    ctx.textAlign='left';
   }
 }
 
@@ -1301,6 +1303,7 @@ assets.load(()=>{
   }
   requestAnimationFrame(frame);
 });
+
 addEventListener('contextmenu', e=>e.preventDefault());
 })();
 </script>
