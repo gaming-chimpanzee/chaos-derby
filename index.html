@@ -33,9 +33,8 @@
   #c{
     display:block;
     width:100vw;
-    height:100vh;
-    height:100svh;
-    height:100dvh;
+    /* Android Chrome アドレスバー問題対策：JSで--vhを更新 */
+    height: calc(var(--vh, 1vh) * 100);
     image-rendering:pixelated;
   }
 
@@ -68,6 +67,1265 @@
     border-radius:999px;
     background:rgba(255,255,255,0.10);
     border:2px solid rgba(255,255,255,0.22);
+  }
+
+  .btn{
+    right: calc(12px + var(--safeR));
+    width: min(26vw, 120px);
+    height: min(14vw, 64px);
+    border-radius:16px;
+    background:rgba(255,255,255,0.10);
+    border:2px solid rgba(255,255,255,0.20);
+    color:#fff; font-weight:700; letter-spacing:0.5px;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter: blur(2px);
+  }
+  .btn:active{transform:scale(0.98); background:rgba(255,255,255,0.14);}
+  #btnWhip{bottom: calc(12px + var(--safeB));}
+  #btnJump{bottom: calc(12px + var(--safeB) + min(14vw,64px) + 10px);}
+  #btnRetry{bottom: calc(12px + var(--safeB) + (min(14vw,64px) + 10px)*2); opacity:0.85;}
+
+  .touchLabel{
+    position:absolute;
+    left: calc(12px + var(--safeL));
+    top:  calc(10px + var(--safeT));
+    color:rgba(255,255,255,0.6);
+    font-size:12px;
+    pointer-events:none;
+  }
+
+  /* PCではタッチUI非表示 */
+  @media (pointer:fine){
+    #touchUI{display:none;}
+  }
+
+  /* スマホはキーヒント非表示 */
+  @media (pointer:coarse){
+    .hint{ display:none !important; }
+  }
+
+  /* Portrait lock overlay */
+  #rotateOverlay{
+    position:fixed;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,0.72);
+    z-index:9999;
+    color:#fff;
+    text-align:center;
+    padding:20px;
+  }
+  #rotateOverlay .box{
+    max-width:520px;
+    background:rgba(20,20,20,0.75);
+    border:1px solid rgba(255,255,255,0.18);
+    border-radius:16px;
+    padding:18px 16px;
+  }
+  #rotateOverlay .title{
+    font-size:22px;
+    font-weight:800;
+    margin-bottom:10px;
+  }
+  #rotateOverlay .sub{
+    font-size:14px;
+    color:rgba(255,255,255,0.8);
+    line-height:1.6;
+  }
+  #rotateOverlay .icon{
+    font-size:42px;
+    margin:10px 0 6px;
+    opacity:0.95;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hint">ENTER: Start / ↑↓: Move / SPACE: Whip / Z: Jump / R: Retry | F2 Debug F3 Hitbox F4 SeedLock F5 Slow F6 Screenshot F7 ObLabels F8 AIDebug</div>
+
+<!-- Touch UI -->
+<div id="touchUI">
+  <div class="touchLabel">TOUCH: Move / Whip / Jump / Retry</div>
+  <div class="pad" id="padMove">
+    <div class="knob" id="padKnob"></div>
+  </div>
+  <div class="btn" id="btnRetry">RETRY</div>
+  <div class="btn" id="btnJump">JUMP</div>
+  <div class="btn" id="btnWhip">WHIP</div>
+</div>
+
+<!-- Portrait overlay -->
+<div id="rotateOverlay">
+  <div class="box">
+    <div class="title">横画面でプレイしてください</div>
+    <div class="icon">📱↻</div>
+    <div class="sub">
+      このゲームは横画面（ランドスケープ）専用です。<br>
+      端末を回転してください。
+    </div>
+  </div>
+</div>
+
+<script src="balance.js"></script>
+<script src="assets.js"></script>
+
+<script>
+(() => {
+'use strict';
+
+// Android Chrome アドレスバー問題対策：実表示高さをCSS変数に反映
+function applyViewportVH(){
+  const vv = window.visualViewport;
+  const h = (vv && vv.height) ? vv.height : window.innerHeight;
+  document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+}
+applyViewportVH();
+window.addEventListener('resize', applyViewportVH);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', applyViewportVH);
+
+/* ---------------- PWA: 条件付きSW登録（file://は無効） ---------------- */
+(function registerSW(){
+  if(!('serviceWorker' in navigator)) return;
+  const proto = location.protocol;
+  const isHttps = proto === 'https:';
+  const isLocalhost = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  if(isHttps || isLocalhost){
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  }
+})();
+
+/* ---------------- Utils ---------------- */
+const BAL = window.BAL;
+const clamp = (v,a,b)=> v<a?a:(v>b?b:v);
+const lerp = (a,b,t)=> a+(b-a)*t;
+const expDecay = (v,k,dt)=> v*Math.exp(-k*dt);
+const nowSec = ()=> performance.now()/1000;
+const signNz = (v, fallback=1)=> v>0?1:(v<0?-1:fallback);
+
+function makeRng(seed){
+  let t = seed >>> 0;
+  return function(){
+    t += 0x6D2B79F5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function randRange(rng,a,b){ return a+(b-a)*rng(); }
+function approach(v, target, dv){
+  if(v<target) return Math.min(target, v+dv);
+  return Math.max(target, v-dv);
+}
+
+/* ---------------- Canvas ---------------- */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function viewSize(){
+  const r = canvas.getBoundingClientRect();
+  return { w: r.width, h: r.height };
+}
+
+function resize(){
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  const r = canvas.getBoundingClientRect();
+  canvas.width  = Math.floor(r.width * dpr);
+  canvas.height = Math.floor(r.height * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+/* ---------------- Orientation lock (best-effort) ---------------- */
+const rotateOverlay = document.getElementById('rotateOverlay');
+function isPortrait(){
+  return innerHeight > innerWidth;
+}
+function updateRotateOverlay(){
+  const portrait = isPortrait();
+  rotateOverlay.style.display = portrait ? 'flex' : 'none';
+}
+addEventListener('resize', updateRotateOverlay);
+addEventListener('orientationchange', updateRotateOverlay);
+updateRotateOverlay();
+
+// Screen Orientation APIは「ユーザー操作が必要」なので、ゲーム開始時にロックを試す
+async function tryLockLandscape(){
+  try{
+    if(screen.orientation && screen.orientation.lock){
+      await screen.orientation.lock('landscape');
+    }
+  }catch(_){
+    // 失敗は仕様上普通に起きるので無視（overlayで誘導）
+  }
+}
+
+/* ---------------- Input (Keyboard + Touch 합成) ---------------- */
+const kb = {
+  down: Object.create(null),
+  press: Object.create(null),
+  clearPress(){ for(const k in this.press) this.press[k]=false; }
+};
+addEventListener('keydown', (e)=>{
+  if(e.repeat) return;
+  kb.down[e.key]=true;
+  kb.press[e.key]=true;
+});
+addEventListener('keyup', (e)=>{ kb.down[e.key]=false; });
+
+const touchState = {
+  moveY: 0,
+  press: Object.create(null),
+  clearPress(){ for(const k in this.press) this.press[k]=false; }
+};
+
+const input = {
+  down: Object.create(null),
+  press: Object.create(null),
+  clearPress(){ for(const k in this.press) this.press[k]=false; },
+  rebuild(){
+    this.down['ArrowUp']   = !!kb.down['ArrowUp']   || touchState.moveY < -0.25;
+    this.down['ArrowDown'] = !!kb.down['ArrowDown'] || touchState.moveY >  0.25;
+    this.down['w'] = !!kb.down['w'] || !!kb.down['W'];
+    this.down['s'] = !!kb.down['s'] || !!kb.down['S'];
+
+    this.press[' ']     = !!kb.press[' ']      || !!touchState.press[' '];
+    this.press['z']     = !!kb.press['z']      || !!kb.press['Z'] || !!touchState.press['z'];
+    this.press['Z']     = this.press['z'];
+    this.press['r']     = !!kb.press['r']      || !!kb.press['R'] || !!touchState.press['r'];
+    this.press['R']     = this.press['r'];
+    this.press['Enter'] = !!kb.press['Enter']  || !!touchState.press['Enter'];
+
+    kb.clearPress();
+    touchState.clearPress();
+  }
+};
+
+/* ---------------- Debug toggles ---------------- */
+const debug = {
+  build: 'SIDE_MOCK_PWA_TOUCH_ORIENT_v1',
+  debug: true,
+  hitbox: false,
+  seedLock: true,
+  slow: false,
+  screenshot: false,
+  obLabels: false,
+  aiDebug: false,
+};
+
+// スマホではデバッグUIをデフォルトOFF（画面圧迫防止）
+if (matchMedia && matchMedia('(pointer:coarse)').matches) {
+  debug.debug = false;
+}
+
+addEventListener('keydown',(e)=>{
+  if(e.repeat) return;
+  if(e.key==='F2'){ debug.debug=!debug.debug; e.preventDefault(); }
+  if(e.key==='F3'){ debug.hitbox=!debug.hitbox; e.preventDefault(); }
+  if(e.key==='F4'){ debug.seedLock=!debug.seedLock; e.preventDefault(); }
+  if(e.key==='F5'){ debug.slow=!debug.slow; e.preventDefault(); }
+  if(e.key==='F6'){ debug.screenshot=!debug.screenshot; e.preventDefault(); }
+  if(e.key==='F7'){ debug.obLabels=!debug.obLabels; e.preventDefault(); }
+  if(e.key==='F8'){ debug.aiDebug=!debug.aiDebug; e.preventDefault(); }
+});
+
+/* ---------------- Touch UI wiring ---------------- */
+(function initTouchUI(){
+  const pad = document.getElementById('padMove');
+  const knob = document.getElementById('padKnob');
+  const btnWhip = document.getElementById('btnWhip');
+  const btnJump = document.getElementById('btnJump');
+  const btnRetry= document.getElementById('btnRetry');
+
+  let padPid = null;
+  let padCenter = {x:0,y:0};
+
+  const updateCenter = ()=>{
+    const r = pad.getBoundingClientRect();
+    padCenter.x = r.left + r.width*0.5;
+    padCenter.y = r.top  + r.height*0.5;
+  };
+  updateCenter();
+  addEventListener('resize', updateCenter);
+
+  function setKnob(nx, ny){
+    const max = Math.min(52, pad.getBoundingClientRect().width*0.32);
+    knob.style.transform = `translate(${nx*max}px, ${ny*max}px)`;
+  }
+  setKnob(0,0);
+
+  pad.addEventListener('pointerdown',(e)=>{
+    pad.setPointerCapture(e.pointerId);
+    padPid = e.pointerId;
+    updateCenter();
+    e.preventDefault();
+  });
+  pad.addEventListener('pointermove',(e)=>{
+    if(padPid!==e.pointerId) return;
+    const dx = e.clientX - padCenter.x;
+    const dy = e.clientY - padCenter.y;
+    const r = Math.hypot(dx,dy);
+    const maxR = Math.min(70, pad.getBoundingClientRect().width*0.44);
+    const k = r>1e-6 ? Math.min(1, r/maxR) : 0;
+    const nx = (r>1e-6)? (dx/r)*k : 0;
+    const ny = (r>1e-6)? (dy/r)*k : 0;
+    touchState.moveY = clamp(ny, -1, 1);
+    setKnob(nx, ny);
+    e.preventDefault();
+  });
+  function endPad(e){
+    if(padPid!==e.pointerId) return;
+    padPid=null;
+    touchState.moveY=0;
+    setKnob(0,0);
+    e.preventDefault();
+  }
+  pad.addEventListener('pointerup', endPad);
+  pad.addEventListener('pointercancel', endPad);
+
+  function pressKey(k){ touchState.press[k]=true; }
+  btnWhip.addEventListener('pointerdown',(e)=>{ pressKey(' '); e.preventDefault(); });
+  btnJump.addEventListener('pointerdown',(e)=>{ pressKey('z'); e.preventDefault(); });
+  btnRetry.addEventListener('pointerdown',(e)=>{ pressKey('r'); e.preventDefault(); });
+
+  // タップでスタート（TITLE中）
+  canvas.addEventListener('pointerdown',(e)=>{
+    if(e.target && e.target.closest && e.target.closest('#touchUI')) return;
+    pressKey('Enter');
+  }, {passive:false});
+})();
+
+/* ---------------- Game classes ---------------- */
+class Camera {
+  constructor(){
+    this.x=0; this.y=0; this.scale=BAL.camScaleBase;
+    this.shakeAmp=0; this.shakeT=0; this.shakeX=0; this.shakeY=0;
+  }
+  addShake(a){ this.shakeAmp = Math.min(BAL.shakeMax, this.shakeAmp + a); }
+  update(dt, player){
+    const targetX = player.x + BAL.lookAheadX + (BAL.camExtraAheadX||0);
+    this.x = lerp(this.x, targetX, BAL.camFollowLerp);
+    this.y = 0;
+
+    const vx = player.vx;
+    const t = clamp((vx - (BAL.baseSpeed + BAL.zoomStartDelta)) / BAL.zoomRange, 0, 1);
+    const scaleT = lerp(BAL.camScaleBase, BAL.camScaleMin, t);
+    this.scale = lerp(this.scale, scaleT, BAL.zoomLerp);
+
+    this.shakeT += dt*30;
+    this.shakeAmp = expDecay(this.shakeAmp, BAL.shakeDecayK, dt);
+    const a=this.shakeAmp;
+    this.shakeX = Math.sin(this.shakeT*1.1)*a*0.35 + Math.sin(this.shakeT*2.7)*a*0.15;
+    this.shakeY = Math.cos(this.shakeT*1.3)*a*0.35 + Math.cos(this.shakeT*2.3)*a*0.15;
+  }
+  worldToScreen(wx, wy){
+    const ppm = 35;
+    const s = ppm * this.scale;
+    const {w:vw, h:vh} = viewSize();
+    const cx = vw*0.5, cy = vh*0.5;
+    return { x:(wx-this.x+this.shakeX)*s+cx, y:(wy-this.y+this.shakeY)*s+cy, s };
+  }
+}
+
+class Obstacle{
+  constructor(id,type,x,y,r){ this.id=id; this.type=type; this.x=x; this.y=y; this.r=r; }
+}
+
+class Horse{
+  constructor(id,isPlayer,color){
+    this.id=id; this.isPlayer=isPlayer; this.color=color;
+    this.x=0; this.y=0; this.vx=0; this.vy=0;
+    this.z=0; this.vz=0;
+    this.boost=0; this.startBoost=0;
+    this.stamina=BAL.staminaMax;
+    this.whipCD=0; this.regenDelay=0;
+    this.startMoveLock=0; this.startWhipLock=0; this.penaltyStop=0;
+    this.hitSlowTimer=0; this.hitSpeedTimer=0;
+    this.finished=false; this.tGoal=0; this.finishRank=0;
+    this.rank=8; this.prevRank=8;
+    this.dropCooldown=0;
+    this.ghostObs = new Map();
+    this.hitLabel=''; this.hitLabelT=0;
+    this._startJudged=false;
+    this.ai = isPlayer? null : new AIBrain(this);
+  }
+  get isGrounded(){ return (this.z<=0 && this.vz<=0); }
+  get dash(){ return (this.boost >= BAL.boostCutoff); }
+  addHitLabel(txt){ this.hitLabel=txt; this.hitLabelT=BAL.hitLabelSec; }
+}
+
+class AIBrain{
+  constructor(h){ this.h=h; this.thinkT=0; this.cooldownT=0; this.targetY=0; this.decision=''; this.decisionT=0; this.whipTryT=0; }
+  setDecision(txt){ this.decision=txt; this.decisionT=0.6; }
+  update(dt, game){
+    const h=this.h;
+    if(h.finished) return;
+    this.thinkT -= dt;
+    this.cooldownT = Math.max(0,this.cooldownT-dt);
+    this.whipTryT -= dt;
+    this.decisionT = Math.max(0,this.decisionT-dt);
+
+    const jam = game.isJammed(h);
+    if(this.thinkT<=0 && this.cooldownT<=0){
+      this.thinkT += BAL.aiThinkIntervalSec;
+      if(jam){
+        const upY = h.y + BAL.aiStepY;
+        const dnY = h.y - BAL.aiStepY;
+        const upScore = game.localCrowdScore(h, upY);
+        const dnScore = game.localCrowdScore(h, dnY);
+        const preferUp = upScore < dnScore;
+        const mistaken = (game.rng() < BAL.aiMistakeProb);
+        let goUp = preferUp;
+        if(mistaken) goUp=!preferUp;
+        game.setAiTarget(h, goUp?upY:dnY);
+        this.cooldownT = BAL.aiLaneChangeCooldownSec;
+        this.setDecision((goUp?'EVADE↑':'EVADE↓') + (mistaken?'?':''));
+      }else{
+        this.targetY = lerp(this.targetY, 0, 0.15);
+        this.setDecision('CRUISE');
+      }
+    }
+
+    if(this.whipTryT<=0){
+      this.whipTryT += BAL.aiWhipTryIntervalSec;
+      let p=BAL.aiWhipProbBase;
+      if(h.stamina < BAL.whipCost*2) p=BAL.aiWhipProbLowStam;
+      if(game.nearObstacleAhead(h,10)) p=Math.min(p,BAL.aiWhipProbNearObs);
+      if(game.rng() < p){
+        game.tryWhip(h,true);
+        this.setDecision('WHIP');
+      }
+    }
+  }
+}
+
+class Game{
+  constructor(){
+    this.seed = BAL.defaultSeed|0;
+    this.rng = makeRng(this.seed);
+    this.courseDistance = BAL.courseDistance;
+    this.courseWidth = BAL.courseWidth;
+    this.halfW = this.courseWidth*0.5;
+    this.yMargin = this.courseWidth * BAL.yMarginRatio;
+
+    this.camera = new Camera();
+    this.time=0; this.raceTime=0;
+    this.scene='TITLE';
+
+    this.countdownT = BAL.countdownSec;
+    this.goWindowLeft=0;
+    this.startFailed=false;
+    this.startLocked=true;
+
+    this.obstacles=[];
+    this.horses=[];
+    this.player=null;
+
+    this.resultT=0;
+    this.pairCD=new Map();
+
+    this.bigText=''; this.bigTextT=0; this.bigTextColor='#fff';
+    this._goalShown=false;
+
+    this.initRun();
+  }
+
+  initRun(){
+    this.obstacles.length=0;
+    this.horses.length=0;
+    this.pairCD.clear();
+
+    this.courseDistance = BAL.courseDistance;
+    this.courseWidth = BAL.courseWidth;
+    this.halfW = this.courseWidth*0.5;
+    this.yMargin = this.courseWidth * BAL.yMarginRatio;
+
+    this.time=0; this.raceTime=0;
+    this.countdownT=BAL.countdownSec;
+    this.goWindowLeft=0;
+    this.startFailed=false;
+    this.startLocked=true;
+
+    this.resultT=0;
+    this.bigText=''; this.bigTextT=0;
+    this._goalShown=false;
+
+    const colors=['#ffd54a','#67d5ff','#ff6b6b','#7dff6b','#b56bff','#ff9bf0','#6bffdd','#ffffff'];
+    for(let i=0;i<8;i++){
+      const isPlayer=(i===0);
+      const h=new Horse(i,isPlayer,colors[i%colors.length]);
+      this.horses.push(h);
+      if(isPlayer) this.player=h;
+    }
+
+    // spawn Y positions
+    const ys=[];
+    for(let i=0;i<8;i++) ys.push(lerp(-this.halfW+this.yMargin, this.halfW-this.yMargin, (i+0.5)/8));
+    let closest=0,best=1e9;
+    for(let i=0;i<8;i++){ const d=Math.abs(ys[i]-0); if(d<best){best=d; closest=i;} }
+    ys[closest]=0;
+    let yi=0;
+    for(const h of this.horses){
+      h.x=0;
+      if(h.isPlayer) h.y=0;
+      else{
+        while(yi<ys.length && ys[yi]===0) yi++;
+        h.y = ys[yi]!==undefined? ys[yi] : randRange(this.rng,-this.halfW+this.yMargin,this.halfW-this.yMargin);
+        yi++;
+      }
+      h.vx=h.vy=0; h.z=h.vz=0;
+      h.boost=0; h.startBoost=0;
+      h.stamina=BAL.staminaMax; h.whipCD=0; h.regenDelay=0;
+      h.startMoveLock=0; h.startWhipLock=0; h.penaltyStop=0;
+      h.hitSlowTimer=0; h.hitSpeedTimer=0;
+      h.finished=false; h.tGoal=0; h.finishRank=0; h.rank=8; h.prevRank=8;
+      h.dropCooldown=0;
+      h.ghostObs.clear(); h.hitLabel=''; h.hitLabelT=0; h._startJudged=false;
+      if(h.ai){ h.ai.targetY=h.y; }
+    }
+
+    this.generateObstaclesRow();
+
+    this.camera.x = this.player.x + BAL.lookAheadX + (BAL.camExtraAheadX||0);
+    this.camera.y = 0;
+    this.camera.scale = BAL.camScaleBase;
+
+    this.scene='TITLE';
+  }
+
+  setBigText(txt,sec,color){ this.bigText=txt; this.bigTextT=sec; this.bigTextColor=color||'#fff'; }
+  setAiTarget(h, y){ if(h.ai) h.ai.targetY = clamp(y, -this.halfW+this.yMargin, this.halfW-this.yMargin); }
+
+  generateObstaclesRow(){
+    const rByType={ mud:1.05, hurdle:1.00, barrel:1.00, boostPad:1.00, bigJumpPad:1.15 };
+    const poolBase = ['mud','hurdle','barrel','boostPad','bigJumpPad'];
+
+    const secN=BAL.sectionsN;
+    const secLen=this.courseDistance/secN;
+
+    const rowSlots = BAL.rowSlots || 8;
+    const minClear = this.courseWidth*BAL.minClearWidthRatio;
+    const Rhorse = BAL.horseR;
+
+    const slotY = (i)=>{
+      const ymin = -this.halfW+this.yMargin;
+      const ymax =  this.halfW-this.yMargin;
+      return lerp(ymin, ymax, (i+0.5)/rowSlots);
+    };
+
+    const xSamples = (x, span)=>{
+      const N = 5;
+      const out=[];
+      for(let k=0;k<N;k++){
+        const t = (k/(N-1))*2-1;
+        out.push(x + t*span);
+      }
+      return out;
+    };
+
+    const rowOk = (rowObs)=>{
+      for(const xs of xSamples(rowObs.x, 2.4)){
+        const intervals=[];
+        for(const o of rowObs.list){
+          const R = (o.r + Rhorse);
+          const dx = Math.abs(o.x - xs);
+          if(dx>R) continue;
+          const hh = Math.sqrt(Math.max(0, R*R - dx*dx));
+          intervals.push([o.y-hh, o.y+hh]);
+        }
+        if(intervals.length===0) return true;
+        intervals.sort((a,b)=>a[0]-b[0]);
+        const merged=[];
+        for(const it of intervals){
+          if(!merged.length || it[0] > merged[merged.length-1][1]) merged.push(it.slice());
+          else merged[merged.length-1][1]=Math.max(merged[merged.length-1][1],it[1]);
+        }
+        const ymin=-this.halfW+this.yMargin, ymax=this.halfW-this.yMargin;
+        let prev=ymin, maxFree=0;
+        for(const m of merged){
+          const a=clamp(m[0],ymin,ymax), b=clamp(m[1],ymin,ymax);
+          if(a>prev) maxFree=Math.max(maxFree,a-prev);
+          prev=Math.max(prev,b);
+        }
+        if(prev<ymax) maxFree=Math.max(maxFree,ymax-prev);
+        if(maxFree>=minClear) return true;
+      }
+      return false;
+    };
+
+    this.obstacles.length=0;
+    let idCounter=1;
+
+    for(let si=0; si<secN; si++){
+      const x0=si*secLen + 40;
+      const x1=(si+1)*secLen - 12;
+      const rows = BAL.countBySection[si];
+      const mixCount = BAL.mixCountBySection[si] || 1;
+
+      const sectionTypes = [];
+      for(let i=0;i<mixCount;i++){
+        const t = si/(secN-1);
+        const hardBias = clamp(0.25 + t*0.45, 0, 0.85);
+        const pick = (this.rng() < hardBias) ? ['mud','hurdle','barrel'] : poolBase;
+        sectionTypes.push(pick[Math.floor(this.rng()*pick.length)]);
+      }
+
+      const gapStart = BAL.rowGapStart ?? 3;
+      const gapEnd   = BAL.rowGapEnd ?? 1;
+      const gaps = Math.max(1, Math.round(lerp(gapStart, gapEnd, si/(secN-1))));
+
+      const fp0 = BAL.rowFullProbStart ?? 0.14;
+      const fp1 = BAL.rowFullProbEnd ?? 0.34;
+      const fullProb = lerp(fp0, fp1, si/(secN-1));
+
+      for(let ri=0; ri<rows; ri++){
+        let placed=null;
+
+        for(let attempt=0; attempt<(BAL.rowPlaceTries||25); attempt++){
+          const x = randRange(this.rng, x0, x1);
+
+          const isFull = (this.rng() < fullProb);
+          const holes = isFull ? 0 : gaps;
+
+          // rowは1種のみ
+          const rowType = sectionTypes[Math.floor(this.rng()*sectionTypes.length)];
+          const r = rByType[rowType] || 1.0;
+
+          const holeSet = new Set();
+          while(holeSet.size < holes){
+            holeSet.add(Math.floor(this.rng()*rowSlots));
+          }
+
+          const list=[];
+          for(let s=0; s<rowSlots; s++){
+            if(holeSet.has(s)) continue;
+            list.push(new Obstacle(idCounter++, rowType, x, slotY(s), r));
+          }
+
+          const rowObs = {x, list};
+          if(!rowOk(rowObs)) continue;
+
+          placed = rowObs;
+          break;
+        }
+
+        if(!placed){
+          const x = randRange(this.rng, x0, x1);
+          const rowType = 'mud';
+          const r = rByType[rowType];
+          const holeSet=new Set();
+          while(holeSet.size < Math.min(4,rowSlots-1)) holeSet.add(Math.floor(this.rng()*rowSlots));
+          const list=[];
+          for(let s=0;s<rowSlots;s++){
+            if(holeSet.has(s)) continue;
+            list.push(new Obstacle(idCounter++, rowType, x, slotY(s), r));
+          }
+          placed = {x, list};
+        }
+
+        this.obstacles.push(...placed.list);
+      }
+    }
+  }
+
+  pairKey(a,b){ const x=Math.min(a,b), y=Math.max(a,b); return x+'|'+y; }
+
+  isJammed(h){
+    for(const o of this.horses){
+      if(o===h || o.finished) continue;
+      const dx=o.x-h.x;
+      if(dx<=0 || dx>=BAL.aiJamDistX) continue;
+      if(Math.abs(o.y-h.y)<BAL.aiJamDistY) return true;
+    }
+    for(const ob of this.obstacles){
+      const dx=ob.x-h.x;
+      if(dx<=0 || dx>=BAL.aiJamDistX) continue;
+      if(Math.abs(ob.y-h.y)<BAL.aiJamDistY) return true;
+    }
+    return false;
+  }
+
+  localCrowdScore(h,y){
+    let score=0;
+    for(const o of this.horses){
+      if(o===h || o.finished) continue;
+      const dx=o.x-h.x;
+      if(dx<0 || dx> BAL.aiJamDistX) continue;
+      const dy=Math.abs(o.y-y);
+      if(dy < BAL.aiJamDistY*1.3) score += 2;
+    }
+    for(const ob of this.obstacles){
+      const dx=ob.x-h.x;
+      if(dx<0 || dx> BAL.aiJamDistX) continue;
+      const dy=Math.abs(ob.y-y);
+      if(dy < BAL.aiJamDistY*1.3) score += (ob.type==='boostPad'||ob.type==='bigJumpPad')?1:3;
+    }
+    const margin=this.halfW-this.yMargin;
+    score += Math.abs(y)/Math.max(0.001,margin)*0.5;
+    return score;
+  }
+
+  nearObstacleAhead(h,dist){
+    for(const ob of this.obstacles){
+      const dx=ob.x-h.x;
+      if(dx<=0 || dx>dist) continue;
+      if(Math.abs(ob.y-h.y)<1.6) return true;
+    }
+    return false;
+  }
+
+  tryWhip(h, edge){
+    if(!edge || h.finished) return;
+    if(h.startWhipLock>0){ h.addHitLabel('LOCK'); return; }
+    if(h.whipCD>0){
+      if(h.isPlayer) this.camera.addShake(0.15);
+      h.addHitLabel('WHIFF');
+      return;
+    }
+    if(h.stamina < BAL.whipCost){ h.addHitLabel('NO STAMINA'); return; }
+
+    h.stamina = Math.max(0, h.stamina - BAL.whipCost);
+    h.regenDelay = BAL.regenDelaySec;
+    h.whipCD = BAL.whipCDSec;
+    h.boost = Math.min(BAL.boostMax, h.boost + BAL.whipBoost);
+    h.addHitLabel('WHIP!');
+    if(h.isPlayer) this.camera.addShake(BAL.shakeWhip);
+  }
+
+  updateRanksOnly(){
+    const arr=this.horses.slice().sort((a,b)=>b.x-a.x);
+    for(let i=0;i<arr.length;i++) arr[i].rank=i+1;
+  }
+
+  assignFinishRanks(){
+    const fin=this.horses.filter(h=>h.finished);
+    if(!fin.length) return;
+    fin.sort((a,b)=>a.tGoal-b.tGoal);
+    const timeEps = BAL.photoFinishEpsM / BAL.baseSpeed;
+    let rank=1;
+    fin[0].finishRank=1;
+    for(let i=1;i<fin.length;i++){
+      if(Math.abs(fin[i].tGoal - fin[i-1].tGoal) <= timeEps) fin[i].finishRank=rank;
+      else { rank=i+1; fin[i].finishRank=rank; }
+    }
+  }
+
+  minSeparationOnce(){
+    for(let i=0;i<this.horses.length;i++){
+      const a=this.horses[i];
+      for(let j=i+1;j<this.horses.length;j++){
+        const b=this.horses[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const rr=BAL.horseR*2;
+        if(dx*dx+dy*dy > rr*rr) continue;
+        const d=Math.sqrt(Math.max(1e-6,dx*dx+dy*dy));
+        const overlap=rr-d;
+        if(overlap<=0) continue;
+        const s=signNz(dy, ((a.id+b.id)&1)?1:-1);
+        const push=overlap*0.5;
+        a.y -= s*push;
+        b.y += s*push;
+
+        const w=this.halfW, margin=BAL.horseR;
+        a.y=clamp(a.y,-w+margin,w-margin);
+        b.y=clamp(b.y,-w+margin,w-margin);
+      }
+    }
+  }
+
+  update(dt){
+    if(debug.slow) dt*=0.25;
+    this.time += dt;
+
+    input.rebuild();
+
+    if(this.scene==='TITLE'){
+      if(input.press['Enter']){
+        // ユーザー操作の瞬間にorientation lockを試す
+        tryLockLandscape();
+        this.scene='GAME';
+        this.setBigText('3',0.6,'#fff');
+      }
+      input.clearPress();
+      return;
+    }
+
+    if(this.scene==='RESULT'){
+      this.resultT += dt;
+      if(input.press['r'] || input.press['R']) this.initRun();
+      input.clearPress();
+      return;
+    }
+
+    // Pair CD
+    for(const [k,v] of Array.from(this.pairCD.entries())){
+      const nv=v-dt;
+      if(nv<=0) this.pairCD.delete(k);
+      else this.pairCD.set(k,nv);
+    }
+
+    // StartState
+    if(this.startLocked){
+      this.countdownT -= dt;
+      for(const h of this.horses){ h.vx=0; h.vy=0; h.boost=0; h.startBoost=0; }
+      if(input.press[' '] && !this.startFailed){
+        this.startFailed=true;
+        this.setBigText('EARLY!',0.55,'#ff4444');
+      }
+      const t=this.countdownT;
+      if(t>2) this.setBigText('3',0.1,'#fff');
+      else if(t>1) this.setBigText('2',0.1,'#fff');
+      else if(t>0) this.setBigText('1',0.1,'#fff');
+      else{
+        this.startLocked=false;
+        this.goWindowLeft=BAL.goWindowSec;
+        this.setBigText('GO!',BAL.goTextSec,'#aaffaa');
+        for(const h of this.horses){
+          h.startMoveLock=BAL.startMoveLockSec;
+          h.startWhipLock=BAL.startWhipLockSec;
+          if(this.startFailed) h.penaltyStop=BAL.startPenaltyStopSec;
+        }
+      }
+      input.clearPress();
+      return;
+    }
+
+    // AI
+    for(const h of this.horses) if(h.ai) h.ai.update(dt,this);
+
+    // Timers/Decay/Regen
+    this.raceTime += dt;
+    if(this.goWindowLeft>0){
+      this.goWindowLeft=Math.max(0,this.goWindowLeft-dt);
+      if(input.press[' '] && !this.player._startJudged){
+        if(!this.startFailed){
+          this.player.startBoost += BAL.startBoostAdd;
+          this.setBigText('START BOOST!',0.55,'#aaffaa');
+        }else{
+          this.tryWhip(this.player,true);
+        }
+        this.player._startJudged=true;
+      }
+      if(this.goWindowLeft<=0 && !this.player._startJudged) this.player._startJudged=true;
+    }
+    if(this.bigTextT>0) this.bigTextT=Math.max(0,this.bigTextT-dt);
+
+    for(const h of this.horses) h.prevRank = h.rank;
+
+    for(const h of this.horses){
+      h.whipCD=Math.max(0,h.whipCD-dt);
+      h.regenDelay=Math.max(0,h.regenDelay-dt);
+      h.startMoveLock=Math.max(0,h.startMoveLock-dt);
+      h.startWhipLock=Math.max(0,h.startWhipLock-dt);
+      h.penaltyStop=Math.max(0,h.penaltyStop-dt);
+      h.dropCooldown=Math.max(0,h.dropCooldown-dt);
+      h.hitSlowTimer=Math.max(0,h.hitSlowTimer-dt);
+      h.hitSpeedTimer=Math.max(0,h.hitSpeedTimer-dt);
+      h.hitLabelT=Math.max(0,h.hitLabelT-dt);
+
+      for(const [oid,tleft] of Array.from(h.ghostObs.entries())){
+        const nt=tleft-dt;
+        if(nt<=0) h.ghostObs.delete(oid);
+        else h.ghostObs.set(oid,nt);
+      }
+
+      if(h.regenDelay<=0) h.stamina = clamp(h.stamina + BAL.staminaRegen*dt, 0, BAL.staminaMax);
+
+      h.boost = expDecay(h.boost, BAL.boostDecayK, dt);
+      if(h.boost < BAL.boostCutoff) h.boost=0;
+
+      h.startBoost = expDecay(h.startBoost, BAL.startBoostDecayK, dt);
+      if(h.startBoost < 0.01) h.startBoost=0;
+    }
+
+    // Player input
+    const p=this.player;
+    let inputY=0;
+    const up = (input.down['ArrowUp'] || input.down['w'] || input.down['W']);
+    const dn = (input.down['ArrowDown'] || input.down['s'] || input.down['S']);
+    if(up && p.startMoveLock<=0) inputY -= 1;
+    if(dn && p.startMoveLock<=0) inputY += 1;
+
+    if(input.press[' ']) this.tryWhip(p,true);
+    if(input.press['z']||input.press['Z']){
+      if(!p.finished && p.isGrounded) p.vz = BAL.jumpV;
+    }
+
+    // Integrate
+    const vMax = BAL.baseSpeed + BAL.boostMax + BAL.startBoostAdd + BAL.vMaxExtra;
+    for(const h of this.horses){
+      let catchMul=1.0;
+      if(!h.finished && h.dropCooldown<=0 && h.prevRank >= BAL.catchupRankFrom){
+        const m=BAL.catchupMulByRank[h.prevRank];
+        if(m) catchMul=m;
+      }
+      if(BAL.dropOnPassTop3 && h.prevRank>3 && h.rank<=3){
+        h.dropCooldown = BAL.dropCooldownSec;
+        catchMul=1.0;
+      }
+
+      let vx = BAL.baseSpeed*catchMul + h.boost + h.startBoost;
+      if(h.penaltyStop>0) vx=0;
+
+      if(h.hitSlowTimer>0){
+        const t=h.hitSlowTimer / BAL.hitSlowSec;
+        const slowMul=lerp(1.0,BAL.hitSlowMul,clamp(t,0,1));
+        vx *= slowMul;
+        vx = Math.max(vx, BAL.baseSpeed*BAL.vBaseFloorMul);
+      }
+      if(h.hitSpeedTimer>0){
+        const t=h.hitSpeedTimer / 0.25;
+        const mul=lerp(1.0,BAL.hitSpeedMul,clamp(t,0,1));
+        vx *= mul;
+        vx = Math.max(vx, BAL.baseSpeed*BAL.vBaseFloorMul);
+      }
+
+      vx = clamp(vx,0,vMax);
+      h.vx=vx;
+
+      h.vz = clamp(h.vz, -BAL.maxFallSpeed, BAL.maxRiseSpeed);
+      h.vz -= BAL.g*dt;
+      h.z += h.vz*dt;
+      if(h.z<0){ h.z=0; if(h.vz<0) h.vz=0; }
+      if(Math.abs(h.vz) < BAL.vyZeroSnap) h.vz=0;
+
+      let aiInputY=0;
+      if(h.ai){
+        const dy=h.ai.targetY - h.y;
+        aiInputY = clamp(dy/2.0,-1,1);
+      }else{
+        aiInputY = inputY;
+      }
+      const mul = h.isGrounded ? 1.0 : BAL.airControlMul;
+      const ySpeed=9.0*mul;
+      const yAccel=28.0*mul;
+      const targetVy=aiInputY*ySpeed;
+      h.vy = approach(h.vy,targetVy,yAccel*dt);
+
+      h.x += h.vx*dt;
+      h.y += h.vy*dt;
+      h.vy = clamp(h.vy, -BAL.vyMax, BAL.vyMax);
+    }
+
+    // Collisions + Knock (MaxOnly)
+    const knockCandidates=[];
+
+    for(const h of this.horses){
+      if(h.finished) continue;
+      for(const ob of this.obstacles){
+        if(h.ghostObs.has(ob.id)) continue;
+        const dx=ob.x-h.x, dy=ob.y-h.y;
+        const rr=ob.r + BAL.horseR;
+        if(dx*dx+dy*dy > rr*rr) continue;
+
+        const isGood = (ob.type==='boostPad'||ob.type==='bigJumpPad');
+        if(isGood && !h.isGrounded) continue;
+
+        if(ob.type==='boostPad'){
+          h.boost = Math.min(BAL.boostMax, h.boost + BAL.padBoost);
+          if(h.isPlayer) this.setBigText('BOOST!',0.25,'#66ff88');
+        }else if(ob.type==='bigJumpPad'){
+          h.vz = BAL.bigJumpV;
+          h.boost = Math.min(BAL.boostMax, h.boost + BAL.bigJumpBoost);
+          if(h.isPlayer) this.setBigText('JUMP!',0.25,'#66ff88');
+        }else{
+          h.hitSlowTimer = Math.max(h.hitSlowTimer, BAL.hitSlowSec);
+          h.ghostObs.set(ob.id, BAL.obstacleGhostSec);
+          if(debug.debug) h.addHitLabel('HIT:'+ob.type);
+
+          if(ob.type==='barrel'){
+            let nx=-dx, ny=-dy;
+            const d=Math.hypot(nx,ny);
+            if(d<1e-6){ ny=0; }
+            else { nx/=d; ny/=d; }
+            let knockSign;
+            if(Math.abs(ny) < BAL.barrelSideNyEps) knockSign=+1;
+            else knockSign=signNz(ny,+1);
+            knockCandidates.push({horse:h, knockY: knockSign*BAL.barrelKnockY, priority:2});
+          }
+        }
+      }
+    }
+
+    for(let i=0;i<this.horses.length;i++){
+      const a=this.horses[i]; if(a.finished) continue;
+      for(let j=i+1;j<this.horses.length;j++){
+        const b=this.horses[j]; if(b.finished) continue;
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const rr=BAL.horseR*2;
+        if(dx*dx+dy*dy > rr*rr) continue;
+
+        const key=this.pairKey(a.id,b.id);
+        if(this.pairCD.has(key)) continue;
+
+        const aDash=a.dash, bDash=b.dash;
+        if(!(aDash||bDash)) continue;
+
+        if(aDash && !bDash){
+          const s=signNz(-dy,+1);
+          knockCandidates.push({horse:b, knockY:s*BAL.knockDashY, priority:1});
+          b.hitSpeedTimer=Math.max(b.hitSpeedTimer,0.25);
+        }else if(!aDash && bDash){
+          const s=signNz(dy,+1);
+          knockCandidates.push({horse:a, knockY:s*BAL.knockDashY, priority:1});
+          a.hitSpeedTimer=Math.max(a.hitSpeedTimer,0.25);
+        }else{
+          const s=signNz(dy, ((a.id+b.id)%2)?1:-1);
+          knockCandidates.push({horse:a, knockY:-s*BAL.knockDashY, priority:1});
+          knockCandidates.push({horse:b, knockY: s*BAL.knockDashY, priority:1});
+          a.hitSpeedTimer=Math.max(a.hitSpeedTimer,0.25);
+          b.hitSpeedTimer=Math.max(b.hitSpeedTimer,0.25);
+        }
+        this.pairCD.set(key,BAL.pairHitCDSec);
+        if(a.isPlayer||b.isPlayer) this.camera.addShake(BAL.shakeKnock);
+      }
+    }
+
+    const best=new Map();
+    for(const k of knockCandidates){
+      const id=k.horse.id;
+      const cur=best.get(id);
+      if(!cur || Math.abs(k.knockY)>Math.abs(cur.knockY) || (Math.abs(k.knockY)===Math.abs(cur.knockY)&&k.priority>cur.priority)){
+        best.set(id,{knockY:k.knockY,priority:k.priority});
+      }
+    }
+    for(const [id,v] of best){
+      const h=this.horses[id];
+      h.vy += v.knockY;
+      h.vy = clamp(h.vy, -BAL.vyMaxKnock, BAL.vyMaxKnock);
+      if(h.isPlayer) this.camera.addShake(BAL.shakeObstacle);
+    }
+
+    this.minSeparationOnce();
+
+    // WallReturn
+    for(const h of this.horses){
+      const w=this.halfW, margin=BAL.horseR;
+      let touching=false;
+      if(h.y < -w+margin){ h.y=-w+margin; touching=true; }
+      else if(h.y > w-margin){ h.y=w-margin; touching=true; }
+      if(touching){
+        h.vy *= BAL.wallFrictionVy;
+        h.vy += (0 - h.y) * BAL.wallReturnK * dt;
+        if(Math.abs(h.vy) < BAL.wallVyDead) h.vy=0;
+      }
+    }
+
+    // Goal/Finish
+    for(const h of this.horses){
+      if(h.finished) continue;
+      if(h.x >= this.courseDistance){
+        h.finished=true;
+        h.tGoal=this.raceTime;
+      }
+    }
+    this.assignFinishRanks();
+
+    if(this.player.finished){
+      if(!this._goalShown){
+        this._goalShown=true;
+        this.setBigText('GOAL! #'+this.player.finishRank, BAL.goalTextSec, '#fff');
+      }
+      this.resultT += dt;
+      if(this.resultT >= BAL.resultDelaySec) this.scene='RESULT';
+    }
+
+    this.updateRanksOnly();
+
+    this.camera.update(dt,this.player);
+
+    input.clearPress();
+  }
+
+  render(){
+    const {w:vw, h:vh} = viewSize();
+    ctx.clearRect(0,0,vw,vh);
+    ctx.fillStyle='#111';
+    ctx.fillRect(0,0,vw,vh);
+
+    const cam=this.camera;
+    const top=cam.worldToScreen(0,-this.halfW).y;
+    const bot=cam.worldToScreen(0, this.halfW).y;
+
+    ctx.fillStyle='#2a2a2a';
+    ctx.fillRect(0,top,vw,bot-top);
+
+    ctx.globalAlpha=0.12;
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1;
+    for(let i=1;i<7;i++){
+      const y=lerp(-this.halfW,this.halfW,i/7);
+      const sy=cam.worldToScreen(0,y).y;
+      ctx.beginPath(); ctx.moveTo(0,sy); ctx.lineTo(vw,sy); ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    const sx0=cam.worldToScreen(0,0).x;
+    const sxG=cam.worldToScreen(this.courseDistance,0).x;
+    ctx.lineWidth=3;
+    ctx.strokeStyle='#44aaff';
+    ctx.beginPath(); ctx.moveTo(sx0,top); ctx.lineTo(sx0,bot); ctx.stroke();
+    ctx.strokeStyle='#ffdd44';
+    ctx.beginPath(); ctx.moveTo(sxG,top); ctx.lineTo(sxG,bot); ctx.stroke();
+
+    ctx.lineWidth=4;
+    ctx.strokeStyle='#ff5555';
+    ctx.beginPath(); ctx.moveTo(0,top); ctx.lineTo(vw,top); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,bot); ctx.lineTo(vw,bot); ctx.stroke();
+
+    for(const ob of this.obstacles){
+      const p=cam.worldToScreen(ob.x,ob.y);
+      const rpx=ob.r*p.s;
+      let col='#888';
+      if(ob.type==='mud') col='#5a3d2b';
+      if(ob.type==='hurdle') col='#cfcfcf';
+      if(ob.type==='barrel') col='#c18a3a';
+      if(ob.type==='boostPad') col='#3cff88';
+      if(ob.type==='bigJumpPad') col='#44ffdd';
+      ctx.fillStyle=col;
+      ctx.beginPath(); ctx.arc(p.x,p.y,rpx,0,Math.PI*2); ctx.fill();
+    }
+
+    for(const h of this.horses){
+      const p=cam.worldToScreen(h.x,h.y);
+      const bodyR=BAL.horseR*p.s;
+      const zVis=Math.min(h.z,6.0);
+      const shadowScale=clamp(1-zVis*0.12,0.55,1);
+      ctx.globalAlpha=0.35;
+      ctx.fillStyle='#000';
+      ctx.beginPath();
+      ctx.ellipse(p.x,p.y+bodyR*0.75,bodyR*1.05*shadowScale,bodyR*0.55*shadowScale,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha=1;
+
+      let alpha=1;
+      const blinking=(h.hitSlowTimer>0 || h.penaltyStop>0) && (Math.floor(this.time*20)%2===0);
+      if(blinking) alpha=0.35;
+      const yOff=-zVis*p.s*0.18;
+
+      ctx.globalAlpha=alpha;
+      ctx.fillStyle=h.color;
+      ctx.beginPath();
+      ctx.ellipse(p.x,p.y+yOff,bodyR*1.1,bodyR*0.75,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha=1;
+    }
+
+    this.drawUI();
+
+    if(this.scene==='TITLE'){
+      ctx.fillStyle='rgba(0,0,0,0.55)';
+      ctx.fillRect(0,0,vw,vh);
+      ctx.fillStyle='#fff';
+      ctx.font='48px system-ui';
+      ctx.fillText('CHAOS DERBY (SIDE)',60,110);
+      ctx.font='20px system-ui';
+      ctx.fillStyle='#ccc';
+      ctx.fillText('TAP/ENTER to Start',60,160);
+    }
+
+    if(this.bigTextT>0 && this.bigText){
+      ctx.fillStyle=this.bigTextColor;
+      ctx.font='72px system-ui';
+      ctx.textAlign='center';
+      ctx.fillText(this.bigText, vw*0.5, vh*0.28);
+      ctx.textAlign='left';
+    }
+  }
+
+  drawUI(){
+    const {w:vw, h:vh} = viewSize();
+    const p=this.player;
+
+    // Minimap (top-center)
+    const mapW=Math.min(520, vw-24);
+    const mapH=52;
+    const mx=vw*0.5 - mapW*0.5;
+    const my=12;
+
+    ctx.font=BAL.hudFontPx+'px system-ui';
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(mx,my,mapW,mapH);
+    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(mx,my,mapW,mapH);
+    ctx.fillStyle='#fff'; ctx.fillText('MAP', mx+6, my+14);
+
+    const lanes=8;
+    for(const h of this.horses){
+      const u=h.finished?1:clamp(h.x/this.courseDistance,0,1);
+      const px=lerp(mx+BAL.mapMarginPx, mx+mapW-BAL.mapMarginPx, u);
+      const py=my+18+(h.id+0.5)/lanes*(mapH-22);
+      ctx.fillStyle=h.isPlayer?'#fff':h.color;
+      ctx.beginPath(); ctx.arc(px,py,h.isPlayer?4:3,0,Math.PI*2); ctx.fill();
+    }
+
+    // Player status (bottom-center)
+    const plateW=Math.min(560, vw-24);
+    const plateH=110;
+    const px0=vw*0.5 - plateW*0.5;
+    const py0=vh-plateH-12;
+
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(px0,py0,plateW,plateH);
+    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(px0,py0,plateW,plateH);
+
+    const left=px0+12, top=py0+18;
+    ctx.fillStyle='#fff';
+    ctx.fillText(`SPD ${p.vx.toFixed(1)} m/s`, left, top);
+    ctx.fillText(`RANK #${p.rank}/8`, left, top+18);
+    const rem=Math.max(0,this.courseDistance-p.x);
+    ctx.fillText(`REM ${rem.toFixed(0)} m`, left, top+36);
+
+    const barW=220,barH=10;
+    const bx=left+170, by=top-10;
+    ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(bx,by,barW,barH);
+    ctx.fillStyle='#66ff88'; ctx.fillRect(bx,by,barW*(p.stamina/BAL.staminaMax),barH);
+    ctx.fillStyle='#fff'; ctx.fillText(`STM ${p.stamina.toFixed(0)}`, bx, by+26);
+
+    const cdRatio=1-clamp(p.whipCD/BAL.whipCDSec,0,1);
+    const cx=px0+plateW-90, cy=py0+plateH*0.5+6, rr=18;
+    ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(cx,cy,rr,0,Math.PI*2); ctx.stroke();
+    ctx.strokeStyle='#ffd54a';
+    ctx.beginPath(); ctx.arc(cx,cy,rr,-Math.PI/2,-Math.PI/2+Math.PI*2*cdRatio); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.fillText('WHIP', cx-20, cy+36);
+
+    if(debug.debug){
+      const w=300,h=112;
+      const dx=vw-w-10, dy=mapH+26;
+      ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(dx,dy,w,h);
+      ctx.fillStyle='#fff';
+      ctx.fillText(`BUILD: ${debug.build}`, dx+10, dy+20);
+      ctx.fillText(`seed ${this.seed} (F4 lock:${debug.seedLock?'ON':'OFF'})`, dx+10, dy+38);
+      ctx.fillText(`t ${this.raceTime.toFixed(2)}s`, dx+10, dy+56);
+      ctx.fillText(`boost ${p.boost.toFixed(2)} start ${p.startBoost.toFixed(2)}`, dx+10, dy+74);
+      ctx.fillText(`dash ${p.dash?'Y':'N'} z ${p.z.toFixed(2)}`, dx+10, dy+92);
+    }
+  }
+}
+
+/* ---------------- Boot ---------------- */
+const assets = new window.AssetStore();
+let game=null;
+assets.load(()=>{
+  game=new Game();
+  window.game=game;
+  let last=nowSec();
+  function frame(){
+    const t=nowSec();
+    let dt=t-last; last=t;
+    dt=Math.min(0.033, Math.max(0.001, dt)); // dt clamp
+    game.update(dt);
+    game.render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+});
+
+addEventListener('contextmenu', e=>e.preventDefault());
+})();
+</script>
+</body>
+</html>    border:2px solid rgba(255,255,255,0.22);
   }
 
   .btn{
